@@ -6,6 +6,8 @@ import mill.define.Cross
 import mill.scalalib.api.ZincWorkerUtil.matchingVersions
 import $ivy.`com.lihaoyi::mill-contrib-jmh:`
 import mill.contrib.jmh.JmhModule
+import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version::0.4.0`
+import de.tobiasroeser.mill.vcs.version.VcsVersion
 import $file.common
 import $file.tests
 
@@ -253,10 +255,22 @@ trait ChiselPublishModule extends PublishModule {
     url = "https://www.chisel-lang.org",
     licenses = Seq(License.`Apache-2.0`),
     versionControl = VersionControl.github("chipsalliance", "chisel"),
-    developers = Seq()
+    developers = Seq(
+      Developer("jackkoenig", "Jack Koenig", "https://github.com/jackkoenig"),
+      Developer("azidar", "Adam Izraelevitz", "https://github.com/azidar"),
+      Developer("seldridge", "Schuyler Eldridge", "https://github.com/seldridge")
+    )
   )
 
-  def publishVersion = "5.0-SNAPSHOT"
+  def publishVersion = VcsVersion
+    .vcsState()
+    .format(
+      countSep = "+",
+      revHashDigits = 8,
+      untaggedSuffix = "-SNAPSHOT"
+      //dirtySep = "",
+      //dirtyHashDigits = 0
+    )
 }
 
 object circtpanamabinding extends CIRCTPanamaBinding
@@ -327,4 +341,76 @@ object benchmark extends ScalaModule with JmhModule with ScalafmtModule {
   def jmhCoreVersion = v.jmhVersion
 
   override def moduleDeps = Seq(chisel(v.scalaVersion))
+}
+
+/** Aggregate project for publishing Chisel as a single artifact
+  */
+object unipublish extends ScalaModule with ChiselPublishModule {
+
+  def scalaVersion = v.scalaVersion
+  def moduleDeps = Seq(firrtl, svsim, macros, core, chisel).map(_(v.scalaVersion))
+  def ivyDeps = T { T.traverse(moduleDeps)(_.ivyDeps)().flatten }
+
+  override def scalacOptions = T {
+    Seq("-Ymacro-annotations")
+  }
+
+  // Built-in UnidocModule is insufficient so we need to implement it ourselves
+  def unidocSourceUrl: T[String] = T {
+    val base = "https://github.com/chipsalliance/chisel/tree"
+    val branch = if (publishVersion().endsWith("-SNAPSHOT")) "main" else s"v${publishVersion()}"
+    s"$base/$branch/€{FILE_PATH_EXT}#L€{FILE_LINE}"
+  }
+
+  def unidocVersion: T[Option[String]] = None
+
+  def unidocCompileClasspath = T {
+    Seq(compile().classes) ++ T.traverse(moduleDeps)(_.compileClasspath)().flatten
+  }
+
+  def unidocSourceFiles = T {
+    allSourceFiles() ++ T.traverse(moduleDeps)(_.allSourceFiles)().flatten
+  }
+
+  def unidocOptions = T {
+    scalacOptions() ++ Seq[String](
+      "-classpath",
+      unidocCompileClasspath().map(_.path).mkString(sys.props("path.separator")),
+      "-diagrams",
+      "-groups",
+      "-skip-packages",
+      "chisel3.internal",
+      "-diagrams-max-classes",
+      "25",
+      "-doc-version",
+      publishVersion(),
+      "-doc-title",
+      "chisel",
+      "-doc-root-content",
+      (T.workspace / "root-doc.txt").toString, // TODO make this a source file
+      "-sourcepath",
+      T.workspace.toString, // TODO is this right?
+      "-doc-source-url",
+      unidocSourceUrl(),
+      "-language:implicitConversions",
+      "-implicits"
+    )
+  }
+
+  def unidoc = T {
+    T.log.info(s"Building unidoc for ${unidocSourceFiles().length} files")
+
+    val fullOptions = unidocOptions() ++ Seq("-d", T.dest.toString) ++ unidocSourceFiles().map(_.path.toString)
+
+    zincWorker()
+      .worker()
+      .docJar(
+        scalaVersion(),
+        scalaOrganization(),
+        scalaDocClasspath(),
+        scalacPluginClasspath(),
+        fullOptions
+      )
+    PathRef(T.dest)
+  }
 }
