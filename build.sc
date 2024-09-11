@@ -2,8 +2,10 @@ import mill._
 import mill.scalalib._
 import mill.scalalib.publish._
 import mill.scalalib.scalafmt._
+import mill.api.Result
 import mill.define.Cross
 import mill.scalalib.api.ZincWorkerUtil.matchingVersions
+import mill.util.Jvm.createJar
 import $ivy.`com.lihaoyi::mill-contrib-jmh:`
 import mill.contrib.jmh.JmhModule
 import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version::0.4.0`
@@ -268,8 +270,6 @@ trait ChiselPublishModule extends PublishModule {
       countSep = "+",
       revHashDigits = 8,
       untaggedSuffix = "-SNAPSHOT"
-      //dirtySep = "",
-      //dirtyHashDigits = 0
     )
 }
 
@@ -356,6 +356,7 @@ object unipublish extends ScalaModule with ChiselPublishModule {
   }
 
   // Built-in UnidocModule is insufficient so we need to implement it ourselves
+  // We could factor this out into a utility
   def unidocSourceUrl: T[String] = T {
     val base = "https://github.com/chipsalliance/chisel/tree"
     val branch = if (publishVersion().endsWith("-SNAPSHOT")) "main" else s"v${publishVersion()}"
@@ -397,10 +398,15 @@ object unipublish extends ScalaModule with ChiselPublishModule {
     )
   }
 
-  def unidoc = T {
+  override def docJar = T {
     T.log.info(s"Building unidoc for ${unidocSourceFiles().length} files")
 
-    val fullOptions = unidocOptions() ++ Seq("-d", T.dest.toString) ++ unidocSourceFiles().map(_.path.toString)
+    val javadocDir = T.dest / "javadoc"
+    os.makeDir(javadocDir)
+
+    val fullOptions = unidocOptions() ++
+      Seq("-d", javadocDir.toString) ++
+      unidocSourceFiles().map(_.path.toString)
 
     zincWorker()
       .worker()
@@ -410,7 +416,9 @@ object unipublish extends ScalaModule with ChiselPublishModule {
         scalaDocClasspath(),
         scalacPluginClasspath(),
         fullOptions
-      )
-    PathRef(T.dest)
+      ) match {
+      case true  => Result.Success(createJar(Agg(javadocDir))(T.dest))
+      case false => Result.Failure("docJar generation failed")
+    }
   }
 }
