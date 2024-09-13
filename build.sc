@@ -349,8 +349,15 @@ object unipublish extends ScalaModule with ChiselPublishModule {
 
   def scalaVersion = v.scalaVersion
   def moduleDeps = Seq(firrtl, svsim, macros, core, chisel).map(_(v.scalaVersion))
+
+  // Aggregate the ivy deps
   def ivyDeps = T { T.traverse(moduleDeps)(_.ivyDeps)().flatten }
 
+  // Aggregate the local classpath
+  override def localClasspath = T { transitiveLocalClasspath().toSeq }
+
+
+  // Needed for ScalaDoc
   override def scalacOptions = T {
     Seq("-Ymacro-annotations")
   }
