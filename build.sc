@@ -348,13 +348,18 @@ object benchmark extends ScalaModule with JmhModule with ScalafmtModule {
 object unipublish extends ScalaModule with ChiselPublishModule {
 
   def scalaVersion = v.scalaVersion
-  def moduleDeps = Seq(firrtl, svsim, macros, core, chisel).map(_(v.scalaVersion))
+
+  // This is published as chisel
+  override def artifactName = "chisel"
+
+  // Explicitly not using moduleDeps because that influences so many things
+  def components = Seq(firrtl, svsim, macros, core, chisel).map(_(v.scalaVersion))
 
   // Aggregate the ivy deps
-  def ivyDeps = T { T.traverse(moduleDeps)(_.ivyDeps)().flatten }
+  def ivyDeps = T { T.traverse(components)(_.ivyDeps)().flatten }
 
   // Aggregate the local classpath
-  override def localClasspath = T { transitiveLocalClasspath().toSeq }
+  override def localClasspath = T { T.traverse(components)(_.localClasspath)().flatten }
 
 
   // Needed for ScalaDoc
@@ -373,11 +378,11 @@ object unipublish extends ScalaModule with ChiselPublishModule {
   def unidocVersion: T[Option[String]] = None
 
   def unidocCompileClasspath = T {
-    Seq(compile().classes) ++ T.traverse(moduleDeps)(_.compileClasspath)().flatten
+    Seq(compile().classes) ++ T.traverse(components)(_.compileClasspath)().flatten
   }
 
   def unidocSourceFiles = T {
-    allSourceFiles() ++ T.traverse(moduleDeps)(_.allSourceFiles)().flatten
+    allSourceFiles() ++ T.traverse(components)(_.allSourceFiles)().flatten
   }
 
   def unidocOptions = T {
