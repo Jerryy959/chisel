@@ -355,12 +355,27 @@ object unipublish extends ScalaModule with ChiselPublishModule {
   // Explicitly not using moduleDeps because that influences so many things
   def components = Seq(firrtl, svsim, macros, core, chisel).map(_(v.scalaVersion))
 
-  // Aggregate the ivy deps
+  /** Aggregated ivy deps to include as dependencies in POM */
   def ivyDeps = T { T.traverse(components)(_.ivyDeps)().flatten }
 
-  // Aggregate the local classpath
+  /** Aggregated local classpath to include in jar */
   override def localClasspath = T { T.traverse(components)(_.localClasspath)().flatten }
 
+
+  /** Aggreagted sources from all component modules */
+  def aggregatedSources = T { T.traverse(components)(_.allSources)().flatten }
+  /** Aggreagted resources from all component modules */
+  def aggregatedResources = T { T.traverse(components)(_.resources)().flatten }
+  /** Aggreagted compile resources from all component modules */
+  def aggregatedCompileResources = T { T.traverse(components)(_.compileResources)().flatten }
+
+  /** Aggregated sourceJar from all component modules
+    */
+  override def sourceJar: T[PathRef] = T {
+    // This is based on the implementation of sourceJar in PublishModule, may need to be kept in sync.
+    val allDirs = aggregatedSources() ++ aggregatedResources() ++ aggregatedCompileResources()
+    createJar(allDirs.map(_.path).filter(os.exists), manifest())
+  }
 
   // Needed for ScalaDoc
   override def scalacOptions = T {
